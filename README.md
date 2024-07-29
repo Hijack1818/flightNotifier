@@ -4,12 +4,13 @@ The Flight Notifier Backend is a Spring Boot application designed to support the
 
 
 ### Notification on email for subscritption
-![Screenshot_2024-07-30-00-41-37-51_e307a3f9df9f380ebaf106e1dc980bb6](https://github.com/user-attachments/assets/ad048806-5cbc-4c20-bae5-eedfe1cc945e)
+![Screenshot_2024-07-30-00-41-37-51_e307a3f9df9f380ebaf106e1dc980bb6](https://github.com/user-attachments/assets/b69bd20d-7b3e-4b4d-8123-f3b53c98eefb)
 
 
 
 ### Alert Email if there is some change in flight
-![Screenshot_2024-07-30-00-41-49-26_e307a3f9df9f380ebaf106e1dc980bb6](https://github.com/user-attachments/assets/1e76db19-7a4b-4aa9-bb25-30e9283815b4)
+![Screenshot_2024-07-30-00-41-49-26_e307a3f9df9f380ebaf106e1dc980bb6](https://github.com/user-attachments/assets/eb02c608-9864-464a-a6f3-8f39687ed753)
+
 
 
 
