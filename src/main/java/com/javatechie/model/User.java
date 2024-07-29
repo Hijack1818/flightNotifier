@@ -1,29 +1,33 @@
 package com.javatechie.model;
 
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
-
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
 
 @Entity
 public class User {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Long userid;
+
     private String name;
     private String email;
     private String phoneNumber;
+
+//    @ManyToOne
+//    @JoinColumn(name = "flight_id", nullable = true)
+//    private Flight flight;
+
     private LocalDateTime travelDate;
 
     // Getters and setters
-    public Long getId() {
-        return id;
+
+    public Long getUserid() {
+        return userid;
     }
 
-    public void setId(Long id) {
-        this.id = id;
+    public void setUserid(Long userid) {
+        this.userid = userid;
     }
 
     public String getName() {
@@ -49,6 +53,14 @@ public class User {
     public void setPhoneNumber(String phoneNumber) {
         this.phoneNumber = phoneNumber;
     }
+
+//    public Flight getFlight() {
+//        return flight;
+//    }
+//
+//    public void setFlight(Flight flight) {
+//        this.flight = flight;
+//    }
 
     public LocalDateTime getTravelDate() {
         return travelDate;
