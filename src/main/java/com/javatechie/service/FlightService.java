@@ -9,7 +9,10 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +25,8 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class FlightService {
 
+    private static final Logger logger = LoggerFactory.getLogger(FlightService.class);
+
     @Autowired
     private FlightRepository flightRepository;
     @Autowired
@@ -29,23 +34,27 @@ public class FlightService {
     @Autowired
     private NotificationService notificationService;
 
+    @Value("${flight.APIKEY}")
+    private String APIKEY;
+    @Value("${flight.APIURL}")
+    private String APIURL;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
 
     @Scheduled(fixedRate = 600000) // Check every minute
     public void checkFlightStatusPriority() throws JsonProcessingException {
-        System.out.println("HIIIii method run");
+
+        //fetching all flight from database
         List<Flight> flights = flightRepository.findAll();
-        Set<Flight> filteredFlight = flights.stream().filter(flight ->
-                flight.getScheduledTime().isBefore(flight.getEstimatedTime())
-                        && flight.getScheduledTime().isAfter(LocalDateTime.now())
-                        && flight.getScheduledTime().isBefore(LocalDateTime.now().plusHours(12))).collect(Collectors.toSet());
+
+        Set<Flight> filteredFlight = fliterFlight(flights);
 
         for (Flight flight : filteredFlight) {
-            //request in list all flights
-            String url = String.format("http://api.aviationstack.com/v1/flights?access_key=3f73b3a87c3e6b9b0f64a9e98cfdd01b&flight_iata=%s", flight.getFlightNumber().trim());
+            //request list of all flights
+            String url = String.format(APIURL,APIKEY,flight.getFlightNumber().trim());
 
             String response = new RestTemplate().getForObject(url, String.class);
+            logger.info("Response from API : "+response);
 //                String response = """
 //                        {
 //                            "pagination": {
@@ -112,7 +121,7 @@ public class FlightService {
             if (dataNode != null && dataNode.isArray()) {
                 for (JsonNode item : dataNode) {
                     Flight currentData = new Flight();
-                    if(!item.get("flight_status").asText().equalsIgnoreCase("scheduled")){
+                    if (!item.get("flight_status").asText().equalsIgnoreCase("scheduled")) {
                         continue;
                     }
                     // Flight number
@@ -141,14 +150,14 @@ public class FlightService {
                         // Gate
                         if (departureNode.has("gate") && !departureNode.get("gate").asText().equalsIgnoreCase("null")) {
                             currentData.setGate(departureNode.get("gate").asText());
-                        }else{
+                        } else {
                             currentData.setGate(flight.getGate());
                         }
 
                         // Terminal
                         if (departureNode.has("terminal") && !departureNode.get("terminal").asText().equalsIgnoreCase("null")) {
                             currentData.setTerminal(departureNode.get("terminal").asText());
-                        }else{
+                        } else {
                             currentData.setTerminal(flight.getTerminal());
                         }
 
@@ -157,33 +166,14 @@ public class FlightService {
                             String delayStr = departureNode.get("delay").asText();
                             if (!delayStr.equalsIgnoreCase("null") && !delayStr.isEmpty()) {
                                 currentData.setDelay(Long.parseLong(delayStr));
-                            }
-                            else{
+                            } else {
                                 currentData.setDelay(flight.getDelay());
-                        }
-                    }
-                    List<User> allUserWithFlight = flight.getUserList().stream().toList();
-                    if ((
-                            flight.getGate()!=null && currentData.getGate()!=null && !flight.getGate().equalsIgnoreCase(currentData.getGate()))  //if flight gate changes
-                                    || (flight.getDelay()!=null && currentData.getDelay()!=null && flight.getDelay() - currentData.getDelay() < -9)     //if delay in flight exceeds 10 min both pospone and prepone
-                                    || (flight.getDelay()!=null && currentData.getDelay()!=null && flight.getDelay() - currentData.getDelay() > 9)
-                                    || (flight.getTerminal()!=null && currentData.getTerminal()!=null && !flight.getTerminal().equalsIgnoreCase(currentData.getTerminal())) //if terminal of flight gets changes
-                    ){
-
-                        flight.setGate(currentData.getGate());
-                        flight.setDelay(currentData.getDelay());
-                        flight.setTerminal(currentData.getTerminal());
-                        flight.setEstimatedTime(currentData.getEstimatedTime());
-                        flight.setScheduledTime(currentData.getScheduledTime());
-                        flightRepository.save(flight);
-
-                        for (User user : allUserWithFlight) {
-                                String message = "There are some changes in your flight timing, terminal or gate for the Flight Number: " + flight.getFlightNumber() + ". Scheduled: " +
-                                        currentData.getScheduledTime() + ", Estimated: " + currentData.getEstimatedTime() + ", Gate No: " + currentData.getGate() + ", Terminal: " + currentData.getTerminal();
-                                notificationService.sendEmail(user.getEmail(), "Notification: Flight Details for " + currentData.getFlightNumber(), message);
-                                //                    notificationService.sendSMS(user.getPhoneNumber(), message);
                             }
                         }
+                        //if flight gate changes
+                        //if delay in flight exceeds 10 min both pospone and prepone by 10 min
+                        //if terminal of flight gets changes
+                        filterData(flight,currentData);
                     }
                 }
             }
@@ -191,9 +181,56 @@ public class FlightService {
     }
 
 
+    /*
+    method used to filter data whose scheduled time is less than estimated time
+    and schedule time is after current time
+    and schedule time is before 12 hours as priority notification will send
+    */
+    private Set<Flight> fliterFlight(List<Flight> flights) {
+        return flights.stream().filter(flight ->
+                flight.getScheduledTime().isBefore(flight.getEstimatedTime())
+                        && flight.getScheduledTime().isAfter(LocalDateTime.now())
+                        && flight.getScheduledTime().isBefore(LocalDateTime.now().plusHours(12))).collect(Collectors.toSet());
+    }
+
+    //if flight gate changes
+    //if delay in flight exceeds 10 min both pospone and prepone by 10 min
+    //if terminal of flight gets changes
+    private void filterData(Flight flight, Flight currentData) {
+        if ((
+                flight.getGate() != null && currentData.getGate() != null && !flight.getGate().equalsIgnoreCase(currentData.getGate()))
+                || (flight.getDelay() != null && currentData.getDelay() != null && flight.getDelay() - currentData.getDelay() < -9)
+                || (flight.getDelay() != null && currentData.getDelay() != null && flight.getDelay() - currentData.getDelay() > 9)
+                || (flight.getTerminal() != null && currentData.getTerminal() != null && !flight.getTerminal().equalsIgnoreCase(currentData.getTerminal()))
+        ) {
+
+            //save the updated current flight data to database
+            flight.setGate(currentData.getGate());
+            flight.setDelay(currentData.getDelay());
+            flight.setTerminal(currentData.getTerminal());
+            flight.setEstimatedTime(currentData.getEstimatedTime());
+            flight.setScheduledTime(currentData.getScheduledTime());
+            flightRepository.save(flight);
+
+            //send notification all user with flight if there is change
+            notificationSender(currentData, flight);
+        }
+    }
+
+    private void notificationSender(Flight currentData, Flight flight) {
+        List<User> allUserWithFlight = flight.getUserList().stream().toList();
+        for (User user : allUserWithFlight) {
+            String message = "There are some changes in your flight timing, terminal or gate for the Flight Number: " + flight.getFlightNumber() + ". Scheduled: " +
+                    currentData.getScheduledTime() + ", Estimated: " + currentData.getEstimatedTime() + ", Gate No: " + currentData.getGate() + ", Terminal: " + currentData.getTerminal();
+            notificationService.sendEmail(user.getEmail(), "Notification: Flight Details for " + currentData.getFlightNumber(), message);
+            //notificationService.sendSMS(user.getPhoneNumber(), message);
+        }
+    }
+
+
     public void firstTimeEmailConfirmation(Flight data) {
         User user = data.getUserList().stream().toList().get(0);
-        notificationService.sendEmail(user.getEmail(),"Subscription conformation for flight: "+data.getFlightNumber(),"Current status your flight with Flight Number: " + data.getFlightNumber() + ". Scheduled: " +
+        notificationService.sendEmail(user.getEmail(), "Subscription conformation for flight: " + data.getFlightNumber(), "Current status your flight with Flight Number: " + data.getFlightNumber() + ". Scheduled: " +
                 data.getScheduledTime() + ", Estimated: " + data.getEstimatedTime() + ", Gate No: " + data.getGate() + ", Terminal: " + data.getTerminal());
     }
 }

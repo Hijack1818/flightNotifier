@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,13 +45,13 @@ public class FlightController {
 
         Flight flight = flightRepository.findByFlightNumber(data.getFlightNumber());
         User user = data.getUserList().stream().findFirst().orElse(null);
-        if(user==null || !isValidEmail(user.getEmail())){
+        if (user == null || !isValidEmail(user.getEmail())) {
             return ResponseEntity.status(HttpStatus.SC_PARTIAL_CONTENT).body("Email is not valid");
         }
 
-        if(flight==null){
+        if (flight == null) {
             flightRepository.save(data);
-        }else{
+        } else {
             userRepository.save(user);
             Set<User> existingList = flight.getUserList();
             existingList.add(user);
