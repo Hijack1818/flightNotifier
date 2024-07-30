@@ -118,7 +118,7 @@ public class FlightService {
 
             JsonNode dataNode = jsonObject.get("data");
 
-            if (dataNode != null && dataNode.isArray()) {
+            if (isNodeArray(dataNode)) {
                 for (JsonNode item : dataNode) {
                     Flight currentData = new Flight();
                     if (!item.get("flight_status").asText().equalsIgnoreCase("scheduled")) {
@@ -155,8 +155,9 @@ public class FlightService {
                         }
 
                         // Terminal
-                        if (departureNode.has("terminal") && !departureNode.get("terminal").asText().equalsIgnoreCase("null")) {
-                            currentData.setTerminal(departureNode.get("terminal").asText());
+                        String terminal = "Terminal";
+                        if (departureNode.has(terminal) && !departureNode.get(terminal).asText().equalsIgnoreCase("null")) {
+                            currentData.setTerminal(departureNode.get(terminal).asText());
                         } else {
                             currentData.setTerminal(flight.getTerminal());
                         }
@@ -227,10 +228,22 @@ public class FlightService {
         }
     }
 
+    public Flight findAllFlightByNumber(Flight flight){
+        return flightRepository.findByFlightNumber(flight.getFlightNumber());
+    }
 
     public void firstTimeEmailConfirmation(Flight data) {
         User user = data.getUserList().stream().toList().get(0);
         notificationService.sendEmail(user.getEmail(), "Subscription conformation for flight: " + data.getFlightNumber(), "Current status your flight with Flight Number: " + data.getFlightNumber() + ". Scheduled: " +
                 data.getScheduledTime() + ", Estimated: " + data.getEstimatedTime() + ", Gate No: " + data.getGate() + ", Terminal: " + data.getTerminal());
     }
+
+    public Flight saveFlightData(Flight data) {
+        return flightRepository.save(data);
+    }
+
+    public boolean isNodeArray(JsonNode dataNode){
+        return dataNode!=null && dataNode.isArray();
+    }
+
 }
