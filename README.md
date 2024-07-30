@@ -97,5 +97,39 @@ twilio.phone.number=your_twilio_phone_number
     }
   ]
 }
+```
+
+# Application.properties
+```
+spring.application.name=Flight
+
+# MySQL Database Configuration
+spring.datasource.url=jdbc:mysql://localhost:3306/Application
+spring.datasource.driverClassName=com.mysql.cj.jdbc.Driver
+spring.datasource.username=root
+spring.datasource.password=admin
+spring.jpa.database-platform=org.hibernate.dialect.MySQLDialect
+spring.jpa.generate-ddl=true
+spring.jpa.hibernate.ddl-auto = update
+
+
+
+# Email Configuration
+spring.mail.host=smtp.gmail.com
+spring.mail.port=587
+spring.mail.username={YOUR EMAIL PASSWORD}
+spring.mail.password={PASSWORD}
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+
+# Logging Level
+logging.level.org.springframework=INFO
+logging.level.com.example.flightnotification=DEBUG
+logging.level.org.hibernate.sql=DEBUG
+logging.level.org.type.descriptor.sql.BasicBinder=TRACE
+
+flight.APIURL = http://api.aviationstack.com/v1/flights?access_key=%s&flight_iata=%s
+flight.APIKEY = {YOUR API KEY}
+```
 
 
