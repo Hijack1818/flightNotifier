@@ -40,197 +40,261 @@ public class FlightService {
     private String APIURL;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
-
-    @Scheduled(fixedRate = 600000) // Check every minute
+    @Scheduled(fixedRate = 600000) // Check every 10 minutes
     public void checkFlightStatusPriority() throws JsonProcessingException {
-
-        //fetching all flight from database
         List<Flight> flights = flightRepository.findAll();
-
-        Set<Flight> filteredFlight = fliterFlight(flights);
-
-        for (Flight flight : filteredFlight) {
-            //request list of all flights
-            String url = String.format(APIURL,APIKEY,flight.getFlightNumber().trim());
-
-            String response = new RestTemplate().getForObject(url, String.class);
-            logger.info("Response from API : "+response);
-//                String response = """
-//                        {
-//                            "pagination": {
-//                                "limit": 100,
-//                                "offset": 0,
-//                                "count": 1,
-//                                "total": 1
-//                            },
-//                            "data": [
-//                                {
-//                                    "flight_date": "2024-07-28",
-//                                    "flight_status": "scheduled",
-//                                    "departure": {
-//                                        "airport": "Indira Gandhi International",
-//                                        "timezone": "Asia/Kolkata",
-//                                        "iata": "DEL",
-//                                        "icao": "VIDP",
-//                                        "terminal": "2",
-//                                        "gate": "T28",
-//                                        "delay": null,
-//                                        "scheduled": "2024-07-28T12:20:00+00:00",
-//                                        "estimated": "2024-07-28T12:20:00+00:00",
-//                                        "actual": null,
-//                                        "estimated_runway": null,
-//                                        "actual_runway": null
-//                                    },
-//                                    "arrival": {
-//                                        "airport": "Raja Sansi International Airport",
-//                                        "timezone": "Asia/Kolkata",
-//                                        "iata": "ATQ",
-//                                        "icao": "VIAR",
-//                                        "terminal": "1",
-//                                        "gate": null,
-//                                        "baggage": null,
-//                                        "delay": null,
-//                                        "scheduled": "2024-07-28T13:30:00+00:00",
-//                                        "estimated": "2024-07-28T13:30:00+00:00",
-//                                        "actual": null,
-//                                        "estimated_runway": null,
-//                                        "actual_runway": null
-//                                    },
-//                                    "airline": {
-//                                        "name": "IndiGo",
-//                                        "iata": "6E",
-//                                        "icao": "IGO"
-//                                    },
-//                                    "flight": {
-//                                        "number": "2016",
-//                                        "iata": "6E2016",
-//                                        "icao": "IGO2016",
-//                                        "codeshared": null
-//                                    },
-//                                    "aircraft": null,
-//                                    "live": null
-//                                }
-//                            ]
-//                        }
-//                        """;
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode jsonObject = objectMapper.readTree(response);
-
-            JsonNode dataNode = jsonObject.get("data");
-
-            if (dataNode != null && dataNode.isArray()) {
-                for (JsonNode item : dataNode) {
-                    Flight currentData = new Flight();
-                    if (!item.get("flight_status").asText().equalsIgnoreCase("scheduled")) {
-                        continue;
-                    }
-                    // Flight number
-                    JsonNode flightNode = item.get("flight");
-                    if (flightNode != null && flightNode.has("iata")) {
-                        currentData.setFlightNumber(flightNode.get("iata").asText());
-                    }
-
-                    // Departure times
-                    JsonNode departureNode = item.get("departure");
-                    if (departureNode != null) {
-                        if (departureNode.has("scheduled")) {
-                            String scheduledTimeStr = departureNode.get("scheduled").asText();
-                            if (scheduledTimeStr != null && !scheduledTimeStr.isEmpty()) {
-                                currentData.setScheduledTime(LocalDateTime.parse(scheduledTimeStr.split("\\+")[0], DATE_FORMATTER));
-                            }
-                        }
-
-                        if (departureNode.has("estimated")) {
-                            String estimatedTimeStr = departureNode.get("estimated").asText();
-                            if (estimatedTimeStr != null && !estimatedTimeStr.isEmpty()) {
-                                currentData.setEstimatedTime(LocalDateTime.parse(estimatedTimeStr.split("\\+")[0], DATE_FORMATTER));
-                            }
-                        }
-
-                        // Gate
-                        if (departureNode.has("gate") && !departureNode.get("gate").asText().equalsIgnoreCase("null")) {
-                            currentData.setGate(departureNode.get("gate").asText());
-                        } else {
-                            currentData.setGate(flight.getGate());
-                        }
-
-                        // Terminal
-                        if (departureNode.has("terminal") && !departureNode.get("terminal").asText().equalsIgnoreCase("null")) {
-                            currentData.setTerminal(departureNode.get("terminal").asText());
-                        } else {
-                            currentData.setTerminal(flight.getTerminal());
-                        }
-
-                        // Delay
-                        if (departureNode.has("delay")) {
-                            String delayStr = departureNode.get("delay").asText();
-                            if (!delayStr.equalsIgnoreCase("null") && !delayStr.isEmpty()) {
-                                currentData.setDelay(Long.parseLong(delayStr));
-                            } else {
-                                currentData.setDelay(flight.getDelay());
-                            }
-                        }
-                        //if flight gate changes
-                        //if delay in flight exceeds 10 min both pospone and prepone by 10 min
-                        //if terminal of flight gets changes
-                        filterData(flight,currentData);
-                    }
-                }
-            }
+        Set<Flight> filteredFlights = filterFlights(flights);
+        for (Flight flight : filteredFlights) {
+            processFlight(flight);
         }
     }
-
 
     /*
     method used to filter data whose scheduled time is less than estimated time
     and schedule time is after current time
     and schedule time is before 12 hours as priority notification will send
     */
-    private Set<Flight> fliterFlight(List<Flight> flights) {
+    private Set<Flight> filterFlights(List<Flight> flights) {
         return flights.stream().filter(flight ->
-                flight.getScheduledTime().isBefore(flight.getEstimatedTime())
-                        && flight.getScheduledTime().isAfter(LocalDateTime.now())
-                        && flight.getScheduledTime().isBefore(LocalDateTime.now().plusHours(12))).collect(Collectors.toSet());
+                        flight.getScheduledTime().isBefore(flight.getEstimatedTime())
+                                && flight.getScheduledTime().isAfter(LocalDateTime.now())
+                                && flight.getScheduledTime().isBefore(LocalDateTime.now().plusHours(12)))
+                .collect(Collectors.toSet());
     }
 
-    //if flight gate changes
-    //if delay in flight exceeds 10 min both pospone and prepone by 10 min
-    //if terminal of flight gets changes
-    private void filterData(Flight flight, Flight currentData) {
-        if ((
-                flight.getGate() != null && currentData.getGate() != null && !flight.getGate().equalsIgnoreCase(currentData.getGate()))
-                || (flight.getDelay() != null && currentData.getDelay() != null && flight.getDelay() - currentData.getDelay() < -9)
-                || (flight.getDelay() != null && currentData.getDelay() != null && flight.getDelay() - currentData.getDelay() > 9)
-                || (flight.getTerminal() != null && currentData.getTerminal() != null && !flight.getTerminal().equalsIgnoreCase(currentData.getTerminal()))
-        ) {
+    private void processFlight(Flight flight) throws JsonProcessingException {
+        String url = String.format(APIURL, APIKEY, flight.getFlightNumber().trim());
+//        String response = new RestTemplate().getForObject(url, String.class);
+        String response = """
+            {
+                "pagination": {
+                    "limit": 100,
+                    "offset": 0,
+                    "count": 1,
+                    "total": 1
+                },
+                "data": [
+                    {
+                        "flight_date": "2024-07-31",
+                        "flight_status": "scheduled",
+                        "departure": {
+                            "airport": "Indira Gandhi International",
+                            "timezone": "Asia/Kolkata",
+                            "iata": "DEL",
+                            "icao": "VIDP",
+                            "terminal": "2",
+                            "gate": "T28",
+                            "delay": null,
+                            "scheduled": "2024-07-31T08:00:00+00:00",
+                            "estimated": "2024-07-31T08:50:00+00:00",
+                            "actual": null,
+                            "estimated_runway": null,
+                            "actual_runway": null
+                        },
+                        "arrival": {
+                            "airport": "Raja Sansi International Airport",
+                            "timezone": "Asia/Kolkata",
+                            "iata": "ATQ",
+                            "icao": "VIAR",
+                            "terminal": "1",
+                            "gate": null,
+                            "baggage": null,
+                            "delay": null,
+                            "scheduled": "2024-07-28T13:30:00+00:00",
+                            "estimated": "2024-07-28T13:30:00+00:00",
+                            "actual": null,
+                            "estimated_runway": null,
+                            "actual_runway": null
+                        },
+                        "airline": {
+                            "name": "IndiGo",
+                            "iata": "6E",
+                            "icao": "IGO"
+                        },
+                        "flight": {
+                            "number": "2016",
+                            "iata": "6E2016",
+                            "icao": "IGO2016",
+                            "codeshared": null
+                        },
+                        "aircraft": null,
+                        "live": null
+                    }
+                ]
+            }
+            """;
 
-            //save the updated current flight data to database
-            flight.setGate(currentData.getGate());
-            flight.setDelay(currentData.getDelay());
-            flight.setTerminal(currentData.getTerminal());
-            flight.setEstimatedTime(currentData.getEstimatedTime());
-            flight.setScheduledTime(currentData.getScheduledTime());
-            flightRepository.save(flight);
+        logger.info("Response from API : " + response);
 
-            //send notification all user with flight if there is change
-            notificationSender(currentData, flight);
+        JsonNode jsonObject = new ObjectMapper().readTree(response);
+        JsonNode dataNode = jsonObject.get("data");
+
+        if (isNodeArray(dataNode)) {
+            for (JsonNode item : dataNode) {
+                //getting further data from json
+                processFlightData(flight, item);
+            }
         }
     }
 
-    private void notificationSender(Flight currentData, Flight flight) {
-        List<User> allUserWithFlight = flight.getUserList().stream().toList();
-        for (User user : allUserWithFlight) {
-            String message = "There are some changes in your flight timing, terminal or gate for the Flight Number: " + flight.getFlightNumber() + ". Scheduled: " +
-                    currentData.getScheduledTime() + ", Estimated: " + currentData.getEstimatedTime() + ", Gate No: " + currentData.getGate() + ", Terminal: " + currentData.getTerminal();
+    private void processFlightData(Flight flight, JsonNode item) {
+        //check if flight is canceled
+        if(item.get("flight_status").asText().equalsIgnoreCase("cancelled")){
+            notifyAboutTheCancellation(flight);
+            return;
+        }
+        //extracting data from json
+        Flight currentData = extractFlightData(item, flight);
+        //Significant change mean more than 10 min late, gate change, terminal change
+        if (hasSignificantChanges(flight, currentData)) {
+            //save current updated data to data base
+            updateFlightData(flight, currentData);
+            //notify user if there is some change in flight
+            notifyUsers(flight, currentData);
+        }
+    }
+
+    private void notifyAboutTheCancellation(Flight flight) {
+        List<User> users = flight.getUserList().stream().toList();
+        for(User user: users) {
+            String message = String.format("We regret to inform you that your flight has been canceled.\n\n" +
+                            "Flight Number: %s\n" +
+                            "Scheduled Time: %s\n" +
+                            "We apologize for any inconvenience this may cause. Please contact our support team for assistance with rebooking or further information.",
+                    flight.getFlightNumber(),
+                    flight.getScheduledTime());
+
+            notificationService.sendEmail(user.getEmail(), "Flight Cancellation Notification for Flight " + flight.getFlightNumber(), message);
+        }
+    }
+
+    private Flight extractFlightData(JsonNode item, Flight flight) {
+        Flight currentData = new Flight();
+
+        JsonNode flightNode = item.get("flight");
+        //getting flight number
+        if (flightNode != null && flightNode.has("iata")) {
+            currentData.setFlightNumber(flightNode.get("iata").asText());
+        }
+
+        JsonNode departureNode = item.get("departure");
+        if (departureNode != null) {
+            //getting flight schedule and estimate time and date
+            setFlightTimes(currentData, departureNode);
+            //getting delay, gate number, terminal
+            setOptionalFields(currentData, departureNode, flight);
+        }
+
+        return currentData;
+    }
+
+    private void setFlightTimes(Flight currentData, JsonNode departureNode) {
+        if (departureNode.has("scheduled")) {
+            String scheduledTimeStr = departureNode.get("scheduled").asText();
+            currentData.setScheduledTime(parseDateTime(scheduledTimeStr));
+        }
+
+        if (departureNode.has("estimated")) {
+            String estimatedTimeStr = departureNode.get("estimated").asText();
+            currentData.setEstimatedTime(parseDateTime(estimatedTimeStr));
+        }
+    }
+
+    private LocalDateTime parseDateTime(String dateTimeStr) {
+        return LocalDateTime.parse(dateTimeStr.split("\\+")[0], DATE_FORMATTER);
+    }
+
+    //getting gate number, terminal, delay from updated json
+    private void setOptionalFields(Flight currentData, JsonNode departureNode, Flight flight) {
+        if (departureNode.has("gate") && !departureNode.get("gate").asText().equalsIgnoreCase("null")) {
+            currentData.setGate(departureNode.get("gate").asText());
+        }else{
+            currentData.setGate(flight.getGate());
+        }
+
+        if (departureNode.has("terminal") && !departureNode.get("terminal").asText().equalsIgnoreCase("null")) {
+            currentData.setTerminal(departureNode.get("terminal").asText());
+        }else{
+            currentData.setTerminal(flight.getTerminal());
+        }
+
+        if (departureNode.has("delay") && !departureNode.get("delay").asText().equalsIgnoreCase("null")) {
+            currentData.setDelay(Long.parseLong(departureNode.get("delay").asText()));
+        }else{
+            currentData.setDelay(0L);
+        }
+    }
+
+    private boolean hasSignificantChanges(Flight flight, Flight currentData) {
+        //as it might get other flight that is scheduled for other day but having same number
+        if(!currentData.getScheduledTime().isEqual(flight.getScheduledTime())){
+            return false;
+        }
+        //if flight gate changes
+        //if delay in flight exceeds 10 min both pospone and prepone by 10 min
+        //if terminal of flight gets changes
+        return Math.abs(flight.getDelay() - currentData.getDelay()) > 10
+                || !currentData.getGate().equalsIgnoreCase(flight.getGate())
+                || !currentData.getTerminal().equalsIgnoreCase(flight.getTerminal());
+    }
+
+    private void updateFlightData(Flight flight, Flight currentData) {
+        flight.setGate(currentData.getGate());
+        flight.setDelay(currentData.getDelay());
+        flight.setTerminal(currentData.getTerminal());
+        flight.setEstimatedTime(currentData.getEstimatedTime());
+        flight.setScheduledTime(currentData.getScheduledTime());
+        //saving update values of flight into database
+        flightRepository.save(flight);
+    }
+
+    private void notifyUsers(Flight flight, Flight currentData) {
+        List<User> allUsersWithFlight = flight.getUserList().stream().toList();
+        //get list of all user and send email to each and every one if changes are significant
+        for (User user : allUsersWithFlight) {
+            //building message accordingly
+            String message = buildNotificationMessage(flight, currentData);
             notificationService.sendEmail(user.getEmail(), "Notification: Flight Details for " + currentData.getFlightNumber(), message);
             //notificationService.sendSMS(user.getPhoneNumber(), message);
         }
     }
 
+    private String buildNotificationMessage(Flight flight, Flight currentData) {
+        return String.format("We regret to inform you that your flight bording details has been changed.\n\n" +
+                        "Flight Number: %s\n" +
+                        "Scheduled Time: %s\n" +
+                        "Estimated Time: %s\n" +
+                        "Gate No: %s\n" +
+                        "Terminal: %s\n\n" +
+                        "We apologize for any inconvenience this may cause. Please contact our support team for assistance further information.",
+                flight.getFlightNumber(),
+                currentData.getScheduledTime(),
+                currentData.getEstimatedTime(),
+                currentData.getGate(),
+                currentData.getTerminal());
+    }
 
+    public Flight findAllFlightByNumber(Flight flight) {
+        return flightRepository.findByFlightNumber(flight.getFlightNumber());
+    }
+
+    //send email to user who just subscribed
     public void firstTimeEmailConfirmation(Flight data) {
         User user = data.getUserList().stream().toList().get(0);
-        notificationService.sendEmail(user.getEmail(), "Subscription conformation for flight: " + data.getFlightNumber(), "Current status your flight with Flight Number: " + data.getFlightNumber() + ". Scheduled: " +
-                data.getScheduledTime() + ", Estimated: " + data.getEstimatedTime() + ", Gate No: " + data.getGate() + ", Terminal: " + data.getTerminal());
+        String message = String.format("Subscription confirmation for flight: %s.\n Current status: Scheduled: %s,\n Estimated: %s\n, Gate No: %s\n, Terminal: %s \n\n Thank you for choosing us",
+                data.getFlightNumber(),
+                data.getScheduledTime(),
+                data.getEstimatedTime(),
+                data.getGate(),
+                data.getTerminal());
+        notificationService.sendEmail(user.getEmail(), "Subscription Confirmation for Flight " + data.getFlightNumber(), message);
+    }
+
+    public Flight saveFlightData(Flight data) {
+        return flightRepository.save(data);
+    }
+
+    private boolean isNodeArray(JsonNode dataNode) {
+        return dataNode != null && dataNode.isArray();
     }
 }

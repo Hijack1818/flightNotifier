@@ -1,14 +1,11 @@
 package com.javatechie.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.javatechie.model.Flight;
 import com.javatechie.model.User;
-import com.javatechie.repository.FlightRepository;
-import com.javatechie.repository.UserRepository;
 import com.javatechie.service.FlightService;
+import com.javatechie.service.UserService;
 import org.apache.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,13 +19,10 @@ import java.util.regex.Pattern;
 public class FlightController {
 
     @Autowired
-    FlightRepository flightRepository;
+    private FlightService flightService;
 
     @Autowired
-    UserRepository userRepository;
-
-    @Autowired
-    FlightService flightService;
+    private UserService userService;
 
 
     private static final String EMAIL_REGEX = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
@@ -41,22 +35,22 @@ public class FlightController {
 
 
     @PostMapping("/subscribe")
-    public ResponseEntity<String> saveSubscribeUser(@RequestBody Flight data) throws JsonProcessingException {
+    public ResponseEntity<String> saveSubscribeUser(@RequestBody Flight data) {
 
-        Flight flight = flightRepository.findByFlightNumber(data.getFlightNumber());
+        Flight flight = flightService.findAllFlightByNumber(data);
         User user = data.getUserList().stream().findFirst().orElse(null);
         if (user == null || !isValidEmail(user.getEmail())) {
             return ResponseEntity.status(HttpStatus.SC_PARTIAL_CONTENT).body("Email is not valid");
         }
 
         if (flight == null) {
-            flightRepository.save(data);
+            flightService.saveFlightData(data);
         } else {
-            userRepository.save(user);
+            userService.saveUser(user);
             Set<User> existingList = flight.getUserList();
             existingList.add(user);
             flight.setUserList(existingList);
-            flightRepository.save(flight);
+            flightService.saveFlightData(flight);
         }
 
         flightService.firstTimeEmailConfirmation(data);

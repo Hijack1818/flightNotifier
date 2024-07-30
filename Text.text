@@ -1,0 +1,152 @@
+@Scheduled(fixedRate = 600000) // Check every 10 minutes
+    public void checkFlightStatusPriority() throws JsonProcessingException {
+        List<Flight> flights = flightRepository.findAll();
+        Set<Flight> filteredFlights = filterFlights(flights);
+
+        for (Flight flight : filteredFlights) {
+            processFlight(flight);
+        }
+    }
+
+    private Set<Flight> filterFlights(List<Flight> flights) {
+        return flights.stream().filter(flight ->
+                flight.getScheduledTime().isBefore(flight.getEstimatedTime())
+                        && flight.getScheduledTime().isAfter(LocalDateTime.now())
+                        && flight.getScheduledTime().isBefore(LocalDateTime.now().plusHours(12)))
+                .collect(Collectors.toSet());
+    }
+
+    private void processFlight(Flight flight) throws JsonProcessingException {
+        String url = String.format(APIURL, APIKEY, flight.getFlightNumber().trim());
+        String response = new RestTemplate().getForObject(url, String.class);
+        logger.info("Response from API : " + response);
+
+        JsonNode jsonObject = new ObjectMapper().readTree(response);
+        JsonNode dataNode = jsonObject.get("data");
+
+        if (isNodeArray(dataNode)) {
+            for (JsonNode item : dataNode) {
+                processFlightData(flight, item);
+            }
+        }
+    }
+
+    private void processFlightData(Flight flight, JsonNode item) {
+        if (!"scheduled".equalsIgnoreCase(item.get("flight_status").asText())) {
+            return;
+        }
+
+        Flight currentData = extractFlightData(item);
+        if (hasSignificantChanges(flight, currentData)) {
+            updateFlightData(flight, currentData);
+            notifyUsers(flight, currentData);
+        }
+    }
+
+    private Flight extractFlightData(JsonNode item) {
+        Flight currentData = new Flight();
+
+        JsonNode flightNode = item.get("flight");
+        if (flightNode != null && flightNode.has("iata")) {
+            currentData.setFlightNumber(flightNode.get("iata").asText());
+        }
+
+        JsonNode departureNode = item.get("departure");
+        if (departureNode != null) {
+            setFlightTimes(currentData, departureNode);
+            setOptionalFields(currentData, departureNode);
+        }
+
+        return currentData;
+    }
+
+    private void setFlightTimes(Flight currentData, JsonNode departureNode) {
+        if (departureNode.has("scheduled")) {
+            String scheduledTimeStr = departureNode.get("scheduled").asText();
+            currentData.setScheduledTime(parseDateTime(scheduledTimeStr));
+        }
+
+        if (departureNode.has("estimated")) {
+            String estimatedTimeStr = departureNode.get("estimated").asText();
+            currentData.setEstimatedTime(parseDateTime(estimatedTimeStr));
+        }
+    }
+
+    private LocalDateTime parseDateTime(String dateTimeStr) {
+        return LocalDateTime.parse(dateTimeStr.split("\\+")[0], DATE_FORMATTER);
+    }
+
+    private void setOptionalFields(Flight currentData, JsonNode departureNode) {
+        if (departureNode.has("gate") && !departureNode.get("gate").asText().equalsIgnoreCase("null")) {
+            currentData.setGate(departureNode.get("gate").asText());
+        }
+
+        if (departureNode.has("terminal") && !departureNode.get("terminal").asText().equalsIgnoreCase("null")) {
+            currentData.setTerminal(departureNode.get("terminal").asText());
+        }
+
+        if (departureNode.has("delay")) {
+            String delayStr = departureNode.get("delay").asText();
+            if (!delayStr.equalsIgnoreCase("null") && !delayStr.isEmpty()) {
+                currentData.setDelay(Long.parseLong(delayStr));
+            }
+        }
+    }
+
+    private boolean hasSignificantChanges(Flight flight, Flight currentData) {
+        return !currentData.equals(flight)
+                || Math.abs(flight.getDelay() - currentData.getDelay()) > 10
+                || !currentData.getGate().equalsIgnoreCase(flight.getGate())
+                || !currentData.getTerminal().equalsIgnoreCase(flight.getTerminal());
+    }
+
+    private void updateFlightData(Flight flight, Flight currentData) {
+        flight.setGate(currentData.getGate());
+        flight.setDelay(currentData.getDelay());
+        flight.setTerminal(currentData.getTerminal());
+        flight.setEstimatedTime(currentData.getEstimatedTime());
+        flight.setScheduledTime(currentData.getScheduledTime());
+        flightRepository.save(flight);
+    }
+
+    private void notifyUsers(Flight flight, Flight currentData) {
+        List<User> allUsersWithFlight = flight.getUserList();
+        for (User user : allUsersWithFlight) {
+            String message = buildNotificationMessage(flight, currentData);
+            notificationService.sendEmail(user.getEmail(), "Notification: Flight Details for " + currentData.getFlightNumber(), message);
+            //notificationService.sendSMS(user.getPhoneNumber(), message);
+        }
+    }
+
+    private String buildNotificationMessage(Flight flight, Flight currentData) {
+        return String.format("There are some changes in your flight timing, terminal or gate for the Flight Number: %s. Scheduled: %s, Estimated: %s, Gate No: %s, Terminal: %s",
+                flight.getFlightNumber(),
+                currentData.getScheduledTime(),
+                currentData.getEstimatedTime(),
+                currentData.getGate(),
+                currentData.getTerminal());
+    }
+
+    public Flight findAllFlightByNumber(Flight flight) {
+        return flightRepository.findByFlightNumber(flight.getFlightNumber());
+    }
+
+    public void firstTimeEmailConfirmation(Flight data) {
+        User user = data.getUserList().get(0);
+        String message = String.format("Subscription confirmation for flight: %s. Current status: Scheduled: %s, Estimated: %s, Gate No: %s, Terminal: %s",
+                data.getFlightNumber(),
+                data.getScheduledTime(),
+                data.getEstimatedTime(),
+                data.getGate(),
+                data.getTerminal());
+        notificationService.sendEmail(user.getEmail(), "Subscription Confirmation for Flight " + data.getFlightNumber(), message);
+    }
+
+    public Flight saveFlightData(Flight data) {
+        return flightRepository.save(data);
+    }
+
+    private boolean isNodeArray(JsonNode dataNode) {
+        return dataNode != null && dataNode.isArray();
+    }
+}
